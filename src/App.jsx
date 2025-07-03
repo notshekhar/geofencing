@@ -51,18 +51,21 @@ export default function App() {
         document.head.appendChild(leafletJs)
 
         leafletJs.onload = () => {
-            const mapInstance = L.map("map").setView([28.4595, 77.0266], 12)
-            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-                attribution:
-                    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-            }).addTo(mapInstance)
-            setMap(mapInstance)
-            mapRef.current = mapInstance
-            setZoomLevel(mapInstance.getZoom());
-
-            mapInstance.on('zoomend', () => {
+            const mapContainer = document.getElementById('map');
+            if (mapContainer && !mapContainer._leaflet_id) {
+                const mapInstance = L.map("map").setView([28.4595, 77.0266], 12)
+                L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                    attribution:
+                        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                }).addTo(mapInstance)
+                setMap(mapInstance)
+                mapRef.current = mapInstance
                 setZoomLevel(mapInstance.getZoom());
-            });
+
+                mapInstance.on('zoomend', () => {
+                    setZoomLevel(mapInstance.getZoom());
+                });
+            }
         }
 
         return () => {
@@ -183,12 +186,32 @@ export default function App() {
     useEffect(() => {
         if (!map) return
         const handleMapClick = (e) => {
-            if (isDrawing && !isShiftPressed) {
+            // Don't add points if shift is pressed (used for edge insertion)
+            if (isShiftPressed) return;
+
+            // Only handle clicks when drawing or map editing
+            if (!isDrawing && !isEditingOnMap) return;
+
+            const clickPoint = map.latLngToContainerPoint(e.latlng);
+            const pointsBeingEdited = isDrawing ? currentPoints : mapEditingPoints;
+            const markerPixelThreshold = 15; // To avoid creating points on top of existing ones
+
+            for (const p of pointsBeingEdited) {
+                const markerLatLng = L.latLng(p[0], p[1]);
+                const markerPoint = map.latLngToContainerPoint(markerLatLng);
+                
+                if (clickPoint.distanceTo(markerPoint) < markerPixelThreshold) {
+                    showMessage("Too close to an existing point. Drag the point to move it or right-click to delete.", "info", 3000);
+                    return;
+                }
+            }
+            
+            if (isDrawing) {
                 setCurrentPoints((prevPoints) => [
                     ...prevPoints,
                     [e.latlng.lat, e.latlng.lng],
                 ])
-            } else if (isEditingOnMap && !isShiftPressed) {
+            } else if (isEditingOnMap) {
                 setMapEditingPoints((prevPoints) => [
                     ...prevPoints,
                     [e.latlng.lat, e.latlng.lng],
@@ -199,7 +222,7 @@ export default function App() {
         return () => {
             map.off("click", handleMapClick)
         }
-    }, [map, isDrawing, isEditingOnMap, isShiftPressed])
+    }, [map, isDrawing, isEditingOnMap, isShiftPressed, currentPoints, mapEditingPoints, showMessage])
 
     // Effect to update the drawing preview
     useEffect(() => {
@@ -344,12 +367,10 @@ export default function App() {
             polygon.on('click', (e) => {
                 e.originalEvent.stopPropagation() // Prevent map click from firing
                 
-                // Only insert points when Shift is pressed
-                if (!isShiftPressed) return
-                
                 const clickLat = e.latlng.lat
                 const clickLng = e.latlng.lng
                 
+                // When clicking inside the polygon (the blue/orange area), always insert a point on the nearest edge.
                 if (isDrawing) {
                     insertPointOnEdge(clickLat, clickLng, currentPoints, setCurrentPoints)
                 } else if (isEditingOnMap) {
@@ -872,6 +893,8 @@ export default function App() {
                 return
             }
 
+            const isEditingThisFenceInSidebar = fence.id === editingFenceId || fence.id === editingCoordsId;
+
             const polygon = L.polygon(fence.points, {
                 color: "#28a745",
                 fillColor: "#28a745",
@@ -884,29 +907,40 @@ export default function App() {
             polygon.on('click', (e) => {
                 e.originalEvent.stopPropagation()
                 
-                // Only allow edge insertion when Shift is pressed and not currently editing another fence
-                if (!isShiftPressed || isDrawing || isEditingOnMap || editingFenceId || editingCoordsId) return
-                
-                if (confirm(`Insert a new point on "${fence.name}"? This will start map editing mode.`)) {
-                    // Start map editing for this fence
-                    handleStartMapEditing(fence)
-                    
-                    // Insert the point after a short delay to ensure map editing mode is active
-                    setTimeout(() => {
-                        const clickLat = e.latlng.lat
-                        const clickLng = e.latlng.lng
-                        insertPointOnEdge(clickLat, clickLng, fence.points, setMapEditingPoints)
-                    }, 100)
+                const clickLat = e.latlng.lat
+                const clickLng = e.latlng.lng
+
+                // If not editing, clicking the polygon should start editing mode.
+                if (!isDrawing && !isEditingOnMap && !editingFenceId && !editingCoordsId) {
+                    if (isShiftPressed) {
+                        // With shift, directly insert point and start editing.
+                        if (confirm(`Insert a new point on "${fence.name}"? This will start map editing mode.`)) {
+                            handleStartMapEditing(fence)
+                            setTimeout(() => {
+                                insertPointOnEdge(clickLat, clickLng, fence.points, setMapEditingPoints)
+                            }, 100)
+                        }
+                    } else {
+                        // Without shift, just start editing.
+                        if (confirm(`Start editing "${fence.name}" on the map?`)) {
+                            handleStartMapEditing(fence)
+                        }
+                    }
+                } else if (isEditingOnMap && fence.id === mapEditingFenceId) {
+                    // If already editing this fence, a click (with or without shift) inserts a point on the edge.
+                    insertPointOnEdge(clickLat, clickLng, mapEditingPoints, setMapEditingPoints)
                 }
             })
             
-            polygon.bindPopup(`<b>${fence.name}</b><br>ID: ${fence.id}<br>Points: ${fence.points.length}`)
+            if (!isEditingThisFenceInSidebar) {
+                polygon.bindPopup(`<b>${fence.name}</b><br>ID: ${fence.id}<br>Points: ${fence.points.length}`)
+            }
             geofenceLayersRef.current.push(polygon)
 
             fence.points.forEach((point, pointIndex) => {
                 const markerSize = scale.savedMarker;
                 const marker = L.marker(point, {
-                    draggable: true,
+                    draggable: !isEditingThisFenceInSidebar,
                     icon: L.divIcon({
                         className: "custom-div-icon saved-marker",
                         html: `<div style='background-color:#28a745; cursor: move;' class='marker-pin saved-pin'></div>`,
@@ -924,41 +958,65 @@ export default function App() {
                     }
                 }
 
-                // Add drag event handlers for saved geofences
-                marker.on('dragstart', () => {
-                    map.dragging.disable()
-                    showMessage("Adjusting saved geofence...", "info", 1000)
-                })
-
-                marker.on('drag', (e) => {
-                    const newLatLng = e.target.getLatLng()
-                    const newPoint = [newLatLng.lat, newLatLng.lng]
-                    
-                    // Update only the visual polygon without changing state
-                    const updatedPoints = [...fence.points]
-                    updatedPoints[pointIndex] = newPoint
-                    polygon.setLatLngs(updatedPoints)
-                })
-
-                marker.on('dragend', (e) => {
-                    map.dragging.enable()
-                    const newLatLng = e.target.getLatLng()
-                    const newPoint = [newLatLng.lat, newLatLng.lng]
-                    
-                    // Update the specific point in the specific geofence only when drag ends
-                    setGeofences(prevGeofences => {
-                        return prevGeofences.map(prevFence => {
-                            if (prevFence.id === fence.id) {
-                                const updatedPoints = [...prevFence.points]
-                                updatedPoints[pointIndex] = newPoint
-                                return { ...prevFence, points: updatedPoints }
-                            }
-                            return prevFence
-                        })
+                if (!isEditingThisFenceInSidebar) {
+                    // Add drag event handlers for saved geofences
+                    marker.on('dragstart', () => {
+                        map.dragging.disable()
+                        showMessage("Adjusting saved geofence...", "info", 1000)
                     })
-                    
-                    showMessage("Geofence point updated!", "success", 2000)
-                })
+
+                    marker.on('drag', (e) => {
+                        const newLatLng = e.target.getLatLng()
+                        const newPoint = [newLatLng.lat, newLatLng.lng]
+                        
+                        // Update only the visual polygon without changing state
+                        const updatedPoints = [...fence.points]
+                        updatedPoints[pointIndex] = newPoint
+                        polygon.setLatLngs(updatedPoints)
+                    })
+
+                    marker.on('dragend', (e) => {
+                        map.dragging.enable()
+                        const newLatLng = e.target.getLatLng()
+                        const newPoint = [newLatLng.lat, newLatLng.lng]
+                        
+                        // Update the specific point in the specific geofence only when drag ends
+                        setGeofences(prevGeofences => {
+                            return prevGeofences.map(prevFence => {
+                                if (prevFence.id === fence.id) {
+                                    const updatedPoints = [...prevFence.points]
+                                    updatedPoints[pointIndex] = newPoint
+                                    return { ...prevFence, points: updatedPoints }
+                                }
+                                return prevFence
+                            })
+                        })
+                        
+                        showMessage("Geofence point updated!", "success", 2000)
+                    })
+
+                    // Add right-click delete functionality for saved points
+                    marker.on('contextmenu', (e) => {
+                        e.originalEvent.preventDefault()
+                        if (fence.points.length <= 3) {
+                            showMessage("Cannot delete point. Geofence must have at least 3 points.", "error")
+                            return
+                        }
+                        
+                        if (confirm('Delete this point from the saved geofence?')) {
+                            setGeofences(prevGeofences => {
+                                return prevGeofences.map(prevFence => {
+                                    if (prevFence.id === fence.id) {
+                                        const updatedPoints = prevFence.points.filter((_, i) => i !== pointIndex)
+                                        return { ...prevFence, points: updatedPoints }
+                                    }
+                                    return prevFence
+                                })
+                            })
+                            showMessage("Point deleted from geofence.", "info")
+                        }
+                    })
+                }
 
                 // Add hover effects for saved markers
                 marker.on('mouseover', () => {
@@ -980,28 +1038,6 @@ export default function App() {
                             pin.style.transform = 'scale(1)'
                             pin.style.boxShadow = '0 1px 3px rgba(0,0,0,0.5)'
                         }
-                    }
-                })
-
-                // Add right-click delete functionality for saved points
-                marker.on('contextmenu', (e) => {
-                    e.originalEvent.preventDefault()
-                    if (fence.points.length <= 3) {
-                        showMessage("Cannot delete point. Geofence must have at least 3 points.", "error")
-                        return
-                    }
-                    
-                    if (confirm('Delete this point from the saved geofence?')) {
-                        setGeofences(prevGeofences => {
-                            return prevGeofences.map(prevFence => {
-                                if (prevFence.id === fence.id) {
-                                    const updatedPoints = prevFence.points.filter((_, i) => i !== pointIndex)
-                                    return { ...prevFence, points: updatedPoints }
-                                }
-                                return prevFence
-                            })
-                        })
-                        showMessage("Point deleted from geofence.", "info")
                     }
                 })
 
