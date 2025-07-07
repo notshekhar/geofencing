@@ -16,6 +16,7 @@ export default function App() {
     const [isLoading, setIsLoading] = useState(false)
     const [message, setMessage] = useState({ text: "", type: "" })
     const [copiedId, setCopiedId] = useState(null)
+    const [copiedPgId, setCopiedPgId] = useState(null)
     const [editingFenceId, setEditingFenceId] = useState(null)
     const [editingFenceName, setEditingFenceName] = useState("")
     const [editingCoordsId, setEditingCoordsId] = useState(null)
@@ -25,6 +26,8 @@ export default function App() {
     const [mapEditingPoints, setMapEditingPoints] = useState([])
     const [isShiftPressed, setIsShiftPressed] = useState(false)
     const [zoomLevel, setZoomLevel] = useState(12); // Initial zoom
+    const [isMapBeingDragged, setIsMapBeingDragged] = useState(false)
+    const [hiddenGeofences, setHiddenGeofences] = useState(new Set())
 
     // Refs to keep track of Leaflet layers and UI elements
     const mapRef = useRef(null)
@@ -64,6 +67,18 @@ export default function App() {
 
                 mapInstance.on('zoomend', () => {
                     setZoomLevel(mapInstance.getZoom());
+                });
+
+                // Track map dragging to prevent drawing during/after panning
+                mapInstance.on('dragstart', () => {
+                    setIsMapBeingDragged(true);
+                });
+
+                mapInstance.on('dragend', () => {
+                    // Use a small delay to prevent drawing immediately after panning
+                    setTimeout(() => {
+                        setIsMapBeingDragged(false);
+                    }, 100);
                 });
             }
         }
@@ -189,6 +204,9 @@ export default function App() {
             // Don't add points if shift is pressed (used for edge insertion)
             if (isShiftPressed) return;
 
+            // Don't add points if map is being dragged or was just dragged
+            if (isMapBeingDragged) return;
+
             // Only handle clicks when drawing or map editing
             if (!isDrawing && !isEditingOnMap) return;
 
@@ -222,7 +240,7 @@ export default function App() {
         return () => {
             map.off("click", handleMapClick)
         }
-    }, [map, isDrawing, isEditingOnMap, isShiftPressed, currentPoints, mapEditingPoints, showMessage])
+    }, [map, isDrawing, isEditingOnMap, isShiftPressed, currentPoints, mapEditingPoints, showMessage, isMapBeingDragged])
 
     // Effect to update the drawing preview
     useEffect(() => {
@@ -663,6 +681,41 @@ export default function App() {
         document.body.removeChild(textarea)
     }
 
+    const handleCopyPostgresPolygon = (fence) => {
+        // Convert coordinates to PostgreSQL POLYGON format: POLYGON((lng lat, lng lat, ...))
+        const polygonCoords = fence.points.map(point => `${point[1]} ${point[0]}`).join(', ')
+        const postgresPolygon = `POLYGON((${polygonCoords}))`
+        
+        const textarea = document.createElement("textarea")
+        textarea.value = postgresPolygon
+        document.body.appendChild(textarea)
+        textarea.select()
+        try {
+            document.execCommand("copy")
+            setCopiedPgId(fence.id)
+            setTimeout(() => setCopiedPgId(null), 2000)
+            showMessage("PostgreSQL polygon copied to clipboard!", "success")
+        } catch (err) {
+            console.error("Failed to copy PostgreSQL polygon: ", err)
+            showMessage("Failed to copy PostgreSQL polygon.", "error")
+        }
+        document.body.removeChild(textarea)
+    }
+
+    const handleToggleGeofenceVisibility = (fenceId) => {
+        setHiddenGeofences(prevHidden => {
+            const newHidden = new Set(prevHidden)
+            if (newHidden.has(fenceId)) {
+                newHidden.delete(fenceId)
+                showMessage("Geofence shown on map", "info", 1500)
+            } else {
+                newHidden.add(fenceId)
+                showMessage("Geofence hidden from map", "info", 1500)
+            }
+            return newHidden
+        })
+    }
+
     const handleStartEditing = (fence) => {
         setEditingFenceId(fence.id)
         setEditingFenceName(fence.name)
@@ -893,6 +946,11 @@ export default function App() {
                 return
             }
 
+            // Skip rendering if this geofence is hidden
+            if (hiddenGeofences.has(fence.id)) {
+                return
+            }
+
             const isEditingThisFenceInSidebar = fence.id === editingFenceId || fence.id === editingCoordsId;
 
             const polygon = L.polygon(fence.points, {
@@ -1044,7 +1102,7 @@ export default function App() {
                 geofenceLayersRef.current.push(marker)
             })
         })
-    }, [geofences, map, isEditingOnMap, mapEditingFenceId, isShiftPressed, isDrawing, editingFenceId, editingCoordsId, zoomLevel])
+    }, [geofences, map, isEditingOnMap, mapEditingFenceId, isShiftPressed, isDrawing, editingFenceId, editingCoordsId, zoomLevel, hiddenGeofences])
 
     // --- LocalStorage Persistence ---
     useEffect(() => {
@@ -1324,6 +1382,10 @@ export default function App() {
                     handleFocusOnFence={handleFocusOnFence}
                     handleCopyCoords={handleCopyCoords}
                     copiedId={copiedId}
+                    handleCopyPostgresPolygon={handleCopyPostgresPolygon}
+                    copiedPgId={copiedPgId}
+                    handleToggleGeofenceVisibility={handleToggleGeofenceVisibility}
+                    hiddenGeofences={hiddenGeofences}
                     handleDeleteFence={handleDeleteFence}
                     editingCoordsId={editingCoordsId}
                     setEditingCoordsId={setEditingCoordsId}
