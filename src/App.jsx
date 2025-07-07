@@ -28,6 +28,7 @@ export default function App() {
     const [zoomLevel, setZoomLevel] = useState(12); // Initial zoom
     const [isMapBeingDragged, setIsMapBeingDragged] = useState(false)
     const [hiddenGeofences, setHiddenGeofences] = useState(new Set())
+    const [isPinning, setIsPinning] = useState(false)
 
     // Refs to keep track of Leaflet layers and UI elements
     const mapRef = useRef(null)
@@ -35,6 +36,7 @@ export default function App() {
     const drawingMarkersRef = useRef([])
     const geofenceLayersRef = useRef([])
     const searchContainerRef = useRef(null)
+    const tempPinRef = useRef(null)
 
     // --- Map Initialization ---
     useEffect(() => {
@@ -201,6 +203,55 @@ export default function App() {
     useEffect(() => {
         if (!map) return
         const handleMapClick = (e) => {
+            if (isPinning) {
+                if (tempPinRef.current) {
+                    tempPinRef.current.remove()
+                }
+
+                const pinMarker = L.marker(e.latlng, {
+                    icon: L.divIcon({
+                        className: 'custom-pin-icon',
+                        html: `<svg viewBox="0 0 24 24" fill="currentColor" class="map-pin-svg">
+                                   <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                               </svg>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 32], // Point of the pin
+                        popupAnchor: [0, -32] // Position of the popup relative to the icon
+                    }),
+                }).addTo(map)
+
+                const popupContent = document.createElement('div')
+                popupContent.style.textAlign = 'center'
+                
+                const coordsEl = document.createElement('div')
+                coordsEl.innerText = `Lat: ${e.latlng.lat.toFixed(6)}, Lng: ${e.latlng.lng.toFixed(6)}`
+                
+                const copyButton = document.createElement('button')
+                copyButton.innerText = 'Copy Coords'
+                copyButton.className = 'bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs'
+                
+                copyButton.onclick = (event) => {
+                    event.stopPropagation()
+                    navigator.clipboard.writeText(`${e.latlng.lat}, ${e.latlng.lng}`)
+                    showMessage('Coordinates copied to clipboard!', 'success')
+                    map.closePopup()
+                };
+                
+                popupContent.appendChild(coordsEl)
+                popupContent.appendChild(copyButton)
+                
+                pinMarker.bindPopup(popupContent).openPopup()
+
+                pinMarker.on('popupclose', () => {
+                    if (tempPinRef.current === pinMarker) {
+                        pinMarker.remove()
+                        tempPinRef.current = null
+                    }
+                })
+                
+                tempPinRef.current = pinMarker
+                return
+            }
             // Don't add points if shift is pressed (used for edge insertion)
             if (isShiftPressed) return;
 
@@ -240,7 +291,7 @@ export default function App() {
         return () => {
             map.off("click", handleMapClick)
         }
-    }, [map, isDrawing, isEditingOnMap, isShiftPressed, currentPoints, mapEditingPoints, showMessage, isMapBeingDragged])
+    }, [map, isDrawing, isEditingOnMap, isShiftPressed, currentPoints, mapEditingPoints, showMessage, isMapBeingDragged, isPinning])
 
     // Effect to update the drawing preview
     useEffect(() => {
@@ -443,7 +494,36 @@ export default function App() {
     }, [searchQuery])
 
     // --- UI Handlers ---
+    const handleTogglePinning = () => {
+        const isTurningOn = !isPinning
+        
+        // Turn off other modes
+        setIsDrawing(false)
+        setIsEditingOnMap(false)
+        handleCancelEditing()
+        handleCancelEditingCoords()
+        
+        if (isTurningOn) {
+            setIsPinning(true)
+            showMessage("Pin Mode: Click on the map to drop a pin.", "info", 4000)
+            if (map) map.getContainer().style.cursor = 'crosshair'
+        } else {
+            setIsPinning(false)
+            if (tempPinRef.current) {
+                tempPinRef.current.remove()
+                tempPinRef.current = null
+            }
+            if (map) map.getContainer().style.cursor = ''
+            showMessage("Pin mode disabled.", "info")
+        }
+    }
+
     const handleStartDrawing = () => {
+        setIsPinning(false)
+        if (tempPinRef.current) {
+            tempPinRef.current.remove()
+            tempPinRef.current = null
+        }
         setIsDrawing(true)
         setCurrentPoints([])
         // Change cursor style when drawing
@@ -521,6 +601,11 @@ export default function App() {
     }
 
     const executeSearch = async (locationName) => {
+        setIsPinning(false)
+        if (tempPinRef.current) {
+            tempPinRef.current.remove()
+            tempPinRef.current = null
+        }
         setIsLoading(true)
         setSuggestions([])
 
@@ -872,6 +957,11 @@ export default function App() {
     }
 
     const handleStartMapEditing = (fence) => {
+        setIsPinning(false)
+        if (tempPinRef.current) {
+            tempPinRef.current.remove()
+            tempPinRef.current = null
+        }
         setIsEditingOnMap(true)
         setMapEditingFenceId(fence.id)
         setMapEditingPoints([...fence.points])
@@ -1346,6 +1436,8 @@ export default function App() {
                 // Reset cursor to crosshair when in drawing/editing mode
                 if (map && (isDrawing || isEditingOnMap)) {
                     map.getContainer().style.cursor = 'crosshair'
+                } else if (map && isPinning) {
+                    map.getContainer().style.cursor = 'crosshair'
                 }
             }
         }
@@ -1357,7 +1449,7 @@ export default function App() {
             window.removeEventListener('keydown', handleKeyDown)
             window.removeEventListener('keyup', handleKeyUp)
         }
-    }, [map, isDrawing, isEditingOnMap, handleUndoLastPoint, handleUndoMapEditingPoint, setIsShiftPressed])
+    }, [map, isDrawing, isEditingOnMap, handleUndoLastPoint, handleUndoMapEditingPoint, setIsShiftPressed, isPinning])
 
     return (
         <div className="flex flex-col h-screen bg-gray-100 font-sans">
@@ -1370,10 +1462,22 @@ export default function App() {
         .draggable-marker:hover .draggable-pin { box-shadow: 0 4px 12px rgba(51,136,255,0.8) !important; }
         .saved-marker:hover .saved-pin { box-shadow: 0 4px 12px rgba(40,167,69,0.8) !important; }
         .leaflet-div-icon { background: transparent; border: none; }
+        .custom-pin-icon .map-pin-svg {
+            color: #d946ef; /* fuchsia-500 */
+            width: 32px;
+            height: 32px;
+            filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));
+            transition: transform 0.2s ease-in-out;
+        }
+        .custom-pin-icon:hover .map-pin-svg {
+            transform: scale(1.1);
+        }
       `}</style>
             <Header
                 isDrawing={isDrawing}
                 isEditingOnMap={isEditingOnMap}
+                isPinning={isPinning}
+                handleTogglePinning={handleTogglePinning}
                 searchQuery={searchQuery}
                 setSearchQuery={setSearchQuery}
                 handleSearchSubmit={handleSearchSubmit}
@@ -1404,6 +1508,7 @@ export default function App() {
                     handleImportGeofences={handleImportGeofences}
                     isDrawing={isDrawing}
                     isEditingOnMap={isEditingOnMap}
+                    isPinning={isPinning}
                     handleStartDrawing={handleStartDrawing}
                     // GeofenceCard props
                     editingFenceId={editingFenceId}

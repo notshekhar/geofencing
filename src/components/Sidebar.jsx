@@ -9,6 +9,7 @@ const Sidebar = ({
     handleImportGeofences,
     isDrawing,
     isEditingOnMap,
+    isPinning,
     handleStartDrawing,
     ...rest
 }) => (
@@ -59,7 +60,7 @@ const Sidebar = ({
             </div>
             
             {geofences.length === 0 ? (
-                <EmptyState handleStartDrawing={handleStartDrawing} isDrawing={isDrawing} isEditingOnMap={isEditingOnMap} />
+                <EmptyState handleStartDrawing={handleStartDrawing} isDrawing={isDrawing} isEditingOnMap={isEditingOnMap} isPinning={isPinning} />
             ) : (
                 <div className="space-y-3">
                     {geofences.map((fence) => (

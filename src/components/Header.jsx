@@ -4,6 +4,8 @@ import Icon from "./Icon";
 const Header = ({
     isDrawing,
     isEditingOnMap,
+    isPinning,
+    handleTogglePinning,
     searchQuery,
     setSearchQuery,
     handleSearchSubmit,
@@ -41,12 +43,12 @@ const Header = ({
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search for a location... (e.g., New York, Paris, or specific address)"
                         className="w-full px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        disabled={isDrawing || isEditingOnMap}
+                        disabled={isDrawing || isEditingOnMap || isPinning}
                     />
                     <button
                         type="submit"
                         className="px-4 py-2 bg-blue-600 text-white rounded-r-md hover:bg-blue-700 disabled:bg-gray-400 flex items-center justify-center w-24"
-                        disabled={isLoading || isDrawing || isEditingOnMap}
+                        disabled={isLoading || isDrawing || isEditingOnMap || isPinning}
                     >
                         {isLoading ? (
                             <Icon
@@ -74,13 +76,27 @@ const Header = ({
             </div>
             <div className="flex items-center gap-2">
                 {!isDrawing && !isEditingOnMap ? (
-                    <button
-                        onClick={handleStartDrawing}
-                        className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 flex items-center gap-2"
-                    >
-                        <Icon path="M12.95 2.146a.5.5 0 01.707 0l2.853 2.854a.5.5 0 010 .707l-10 10a.5.5 0 01-.353.146H5.5a.5.5 0 01-.5-.5v-3.5a.5.5 0 01.146-.354l10-10zM14.5 4.5l-9 9v1h1l9-9-1-1z" />{" "}
-                        Draw Fence
-                    </button>
+                    <>
+                        <button
+                            onClick={handleTogglePinning}
+                            className={`px-4 py-2 text-white rounded-md flex items-center gap-2 transition-colors ${
+                                isPinning 
+                                    ? 'bg-fuchsia-600 hover:bg-fuchsia-700' 
+                                    : 'bg-fuchsia-500 hover:bg-fuchsia-600'
+                            }`}
+                        >
+                            <Icon path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                            {isPinning ? "Pinning..." : "Drop Pin"}
+                        </button>
+                        <button
+                            onClick={handleStartDrawing}
+                            className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 flex items-center gap-2"
+                            disabled={isPinning}
+                        >
+                            <Icon path="M12.95 2.146a.5.5 0 01.707 0l2.853 2.854a.5.5 0 010 .707l-10 10a.5.5 0 01-.353.146H5.5a.5.5 0 01-.5-.5v-3.5a.5.5 0 01.146-.354l10-10zM14.5 4.5l-9 9v1h1l9-9-1-1z" />{" "}
+                            Draw Fence
+                        </button>
+                    </>
                 ) : isDrawing ? (
                     <>
                         <button
@@ -130,7 +146,7 @@ const Header = ({
                 ) : null}
                 <button
                     onClick={handleClearAll}
-                    disabled={isDrawing || isEditingOnMap}
+                    disabled={isDrawing || isEditingOnMap || isPinning}
                     className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 disabled:bg-gray-400 flex items-center gap-2"
                 >
                     <Icon path="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-11V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />{" "}
