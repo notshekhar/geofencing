@@ -505,11 +505,13 @@ export default function App() {
     const handleClearAll = () => {
         if (confirm("Are you sure you want to clear all geofences? This will permanently delete all saved data.")) {
         setGeofences([])
+        setHiddenGeofences(new Set())
         setIsDrawing(false)
         setCurrentPoints([])
             // Clear from localStorage as well
             try {
                 localStorage.removeItem('geofences')
+                localStorage.removeItem('hiddenGeofences')
                 showMessage("All geofences cleared from storage.", "success")
             } catch (error) {
                 console.error('Error clearing localStorage:', error)
@@ -753,6 +755,12 @@ export default function App() {
             setGeofences(prevGeofences => 
                 prevGeofences.filter(fence => fence.id !== fenceId)
             )
+            // Also remove from hidden set if it was hidden
+            setHiddenGeofences(prevHidden => {
+                const newHidden = new Set(prevHidden)
+                newHidden.delete(fenceId)
+                return newHidden
+            })
             showMessage("Geofence deleted!", "success")
         }
     }
@@ -1120,6 +1128,19 @@ export default function App() {
             console.error('Error loading geofences from localStorage:', error)
             showMessage("Error loading saved geofences", "error")
         }
+
+        // Load hidden geofences state from localStorage
+        try {
+            const savedHiddenGeofences = localStorage.getItem('hiddenGeofences')
+            if (savedHiddenGeofences) {
+                const parsedHiddenGeofences = JSON.parse(savedHiddenGeofences)
+                if (Array.isArray(parsedHiddenGeofences)) {
+                    setHiddenGeofences(new Set(parsedHiddenGeofences))
+                }
+            }
+        } catch (error) {
+            console.error('Error loading hidden geofences state from localStorage:', error)
+        }
     }, [])
 
     useEffect(() => {
@@ -1135,6 +1156,19 @@ export default function App() {
             showMessage("Error saving geofences", "error")
         }
     }, [geofences])
+
+    useEffect(() => {
+        // Save hidden geofences state to localStorage whenever it changes
+        try {
+            if (hiddenGeofences.size > 0) {
+                localStorage.setItem('hiddenGeofences', JSON.stringify(Array.from(hiddenGeofences)))
+            } else {
+                localStorage.removeItem('hiddenGeofences')
+            }
+        } catch (error) {
+            console.error('Error saving hidden geofences state to localStorage:', error)
+        }
+    }, [hiddenGeofences])
 
     const handleExportGeofences = () => {
         if (geofences.length === 0) {
