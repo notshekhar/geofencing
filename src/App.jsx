@@ -29,6 +29,8 @@ export default function App() {
     const [isMapBeingDragged, setIsMapBeingDragged] = useState(false)
     const [hiddenGeofences, setHiddenGeofences] = useState(new Set())
     const [isPinning, setIsPinning] = useState(false)
+    const [pins, setPins] = useState([])
+    const [sidebarTab, setSidebarTab] = useState('fences') // 'fences' or 'pins'
 
     // Refs to keep track of Leaflet layers and UI elements
     const mapRef = useRef(null)
@@ -36,7 +38,6 @@ export default function App() {
     const drawingMarkersRef = useRef([])
     const geofenceLayersRef = useRef([])
     const searchContainerRef = useRef(null)
-    const tempPinRef = useRef(null)
 
     // --- Map Initialization ---
     useEffect(() => {
@@ -204,8 +205,11 @@ export default function App() {
         if (!map) return
         const handleMapClick = (e) => {
             if (isPinning) {
-                if (tempPinRef.current) {
-                    tempPinRef.current.remove()
+                const newPin = {
+                    id: Date.now() + Math.random(),
+                    lat: e.latlng.lat,
+                    lng: e.latlng.lng,
+                    marker: null
                 }
 
                 const pinMarker = L.marker(e.latlng, {
@@ -224,7 +228,7 @@ export default function App() {
                 popupContent.style.textAlign = 'center'
                 
                 const coordsEl = document.createElement('div')
-                coordsEl.innerText = `Lat: ${e.latlng.lat.toFixed(6)}, Lng: ${e.latlng.lng.toFixed(6)}`
+                coordsEl.innerText = `Pin #${pins.length + 1}\nLat: ${e.latlng.lat.toFixed(6)}, Lng: ${e.latlng.lng.toFixed(6)}`
                 
                 const copyButton = document.createElement('button')
                 copyButton.innerText = 'Copy Coords'
@@ -236,20 +240,29 @@ export default function App() {
                     showMessage('Coordinates copied to clipboard!', 'success')
                     map.closePopup()
                 };
+
+                const deleteButton = document.createElement('button')
+                deleteButton.innerText = 'Delete Pin'
+                deleteButton.className = 'bg-red-200 hover:bg-red-300 text-red-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs ml-2'
+                
+                deleteButton.onclick = (event) => {
+                    event.stopPropagation()
+                    setPins(prevPins => prevPins.filter(pin => pin.id !== newPin.id))
+                    pinMarker.remove()
+                    showMessage('Pin deleted!', 'info')
+                };
                 
                 popupContent.appendChild(coordsEl)
                 popupContent.appendChild(copyButton)
+                popupContent.appendChild(deleteButton)
                 
                 pinMarker.bindPopup(popupContent).openPopup()
 
-                pinMarker.on('popupclose', () => {
-                    if (tempPinRef.current === pinMarker) {
-                        pinMarker.remove()
-                        tempPinRef.current = null
-                    }
-                })
+                // Store the marker reference
+                newPin.marker = pinMarker
+                setPins(prevPins => [...prevPins, newPin])
                 
-                tempPinRef.current = pinMarker
+                showMessage(`Pin #${pins.length + 1} added! Click to add more pins.`, 'success', 2000)
                 return
             }
             // Don't add points if shift is pressed (used for edge insertion)
@@ -505,25 +518,31 @@ export default function App() {
         
         if (isTurningOn) {
             setIsPinning(true)
-            showMessage("Pin Mode: Click on the map to drop a pin.", "info", 4000)
+            showMessage("Pin Mode: Click on the map to drop pins. You can add as many pins as you want!", "info", 5000)
             if (map) map.getContainer().style.cursor = 'crosshair'
         } else {
             setIsPinning(false)
-            if (tempPinRef.current) {
-                tempPinRef.current.remove()
-                tempPinRef.current = null
-            }
+            // Clear all pins
+            pins.forEach(pin => {
+                if (pin.marker) {
+                    pin.marker.remove()
+                }
+            })
+            setPins([])
             if (map) map.getContainer().style.cursor = ''
-            showMessage("Pin mode disabled.", "info")
+            showMessage("Pin mode disabled. All pins cleared.", "info")
         }
     }
 
     const handleStartDrawing = () => {
         setIsPinning(false)
-        if (tempPinRef.current) {
-            tempPinRef.current.remove()
-            tempPinRef.current = null
-        }
+        // Clear all pins
+        pins.forEach(pin => {
+            if (pin.marker) {
+                pin.marker.remove()
+            }
+        })
+        setPins([])
         setIsDrawing(true)
         setCurrentPoints([])
         // Change cursor style when drawing
@@ -588,11 +607,18 @@ export default function App() {
         setHiddenGeofences(new Set())
         setIsDrawing(false)
         setCurrentPoints([])
+        // Clear all pins
+        pins.forEach(pin => {
+            if (pin.marker) {
+                pin.marker.remove()
+            }
+        })
+        setPins([])
             // Clear from localStorage as well
             try {
                 localStorage.removeItem('geofences')
                 localStorage.removeItem('hiddenGeofences')
-                showMessage("All geofences cleared from storage.", "success")
+                showMessage("All geofences and pins cleared from storage.", "success")
             } catch (error) {
                 console.error('Error clearing localStorage:', error)
                 showMessage("Geofences cleared, but error clearing storage.", "error")
@@ -600,12 +626,148 @@ export default function App() {
         }
     }
 
+    const handleClearAllPins = () => {
+        if (pins.length === 0) {
+            showMessage("No pins to clear.", "info")
+            return
+        }
+        
+        if (confirm(`Are you sure you want to clear all ${pins.length} pins?`)) {
+            pins.forEach(pin => {
+                if (pin.marker) {
+                    pin.marker.remove()
+                }
+            })
+            setPins([])
+            showMessage(`All ${pins.length} pins cleared!`, "success")
+        }
+    }
+
+    const handleAddPinManually = () => {
+        const coordsInput = prompt("Enter coordinates (lat, lng):\nExample: 28.4595, 77.0266")
+        
+        if (!coordsInput) return
+        
+        try {
+            const [latStr, lngStr] = coordsInput.split(',').map(coord => coord.trim())
+            
+            if (!latStr || !lngStr) {
+                throw new Error("Please provide both latitude and longitude")
+            }
+            
+            const lat = parseFloat(latStr)
+            const lng = parseFloat(lngStr)
+            
+            if (isNaN(lat) || isNaN(lng)) {
+                throw new Error("Invalid coordinates format")
+            }
+            
+            if (lat < -90 || lat > 90) {
+                throw new Error("Invalid latitude: must be between -90 and 90")
+            }
+            
+            if (lng < -180 || lng > 180) {
+                throw new Error("Invalid longitude: must be between -180 and 180")
+            }
+            
+            // Create the pin object
+            const newPin = {
+                id: Date.now() + Math.random(),
+                lat: lat,
+                lng: lng,
+                marker: null
+            }
+
+            // Create the marker
+            const pinMarker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    className: 'custom-pin-icon',
+                    html: `<svg viewBox="0 0 24 24" fill="currentColor" class="map-pin-svg">
+                               <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                           </svg>`,
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 32],
+                    popupAnchor: [0, -32]
+                }),
+            }).addTo(map)
+
+            const popupContent = document.createElement('div')
+            popupContent.style.textAlign = 'center'
+            
+            const coordsEl = document.createElement('div')
+            coordsEl.innerText = `Pin #${pins.length + 1}\nLat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`
+            
+            const copyButton = document.createElement('button')
+            copyButton.innerText = 'Copy Coords'
+            copyButton.className = 'bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs'
+            
+            copyButton.onclick = (event) => {
+                event.stopPropagation()
+                navigator.clipboard.writeText(`${lat}, ${lng}`)
+                showMessage('Coordinates copied to clipboard!', 'success')
+                map.closePopup()
+            };
+
+            const deleteButton = document.createElement('button')
+            deleteButton.innerText = 'Delete Pin'
+            deleteButton.className = 'bg-red-200 hover:bg-red-300 text-red-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs ml-2'
+            
+            deleteButton.onclick = (event) => {
+                event.stopPropagation()
+                setPins(prevPins => prevPins.filter(pin => pin.id !== newPin.id))
+                pinMarker.remove()
+                showMessage('Pin deleted!', 'info')
+            };
+            
+            popupContent.appendChild(coordsEl)
+            popupContent.appendChild(copyButton)
+            popupContent.appendChild(deleteButton)
+            
+            pinMarker.bindPopup(popupContent).openPopup()
+
+            // Store the marker reference
+            newPin.marker = pinMarker
+            setPins(prevPins => [...prevPins, newPin])
+            
+            showMessage(`Pin #${pins.length + 1} added manually!`, 'success', 2000)
+            
+        } catch (error) {
+            console.error('Error adding pin manually:', error)
+            showMessage(`Error adding pin: ${error.message}`, "error")
+        }
+    }
+
+    const handleFocusOnPin = (pin) => {
+        if (!map) return
+        
+        map.setView([pin.lat, pin.lng], 15)
+        showMessage(`Focused on Pin #${pins.findIndex(p => p.id === pin.id) + 1}`, "info", 2000)
+    }
+
+    const handleDeletePin = (pinId) => {
+        const pin = pins.find(p => p.id === pinId)
+        if (pin && pin.marker) {
+            pin.marker.remove()
+        }
+        setPins(prevPins => prevPins.filter(p => p.id !== pinId))
+        showMessage("Pin deleted!", "success")
+    }
+
+    const handleCopyPinCoords = (pin) => {
+        const coordsString = `${pin.lat}, ${pin.lng}`
+        navigator.clipboard.writeText(coordsString)
+        showMessage("Pin coordinates copied to clipboard!", "success")
+    }
+
     const executeSearch = async (locationName) => {
         setIsPinning(false)
-        if (tempPinRef.current) {
-            tempPinRef.current.remove()
-            tempPinRef.current = null
-        }
+        // Clear all pins
+        pins.forEach(pin => {
+            if (pin.marker) {
+                pin.marker.remove()
+            }
+        })
+        setPins([])
         setIsLoading(true)
         setSuggestions([])
 
@@ -958,10 +1120,13 @@ export default function App() {
 
     const handleStartMapEditing = (fence) => {
         setIsPinning(false)
-        if (tempPinRef.current) {
-            tempPinRef.current.remove()
-            tempPinRef.current = null
-        }
+        // Clear all pins
+        pins.forEach(pin => {
+            if (pin.marker) {
+                pin.marker.remove()
+            }
+        })
+        setPins([])
         setIsEditingOnMap(true)
         setMapEditingFenceId(fence.id)
         setMapEditingPoints([...fence.points])
@@ -1231,7 +1396,84 @@ export default function App() {
         } catch (error) {
             console.error('Error loading hidden geofences state from localStorage:', error)
         }
-    }, [])
+
+        // Load pins from localStorage on component mount
+        try {
+            const savedPins = localStorage.getItem('pins')
+            if (savedPins) {
+                const parsedPins = JSON.parse(savedPins)
+                if (Array.isArray(parsedPins) && parsedPins.length > 0) {
+                    // Recreate markers for loaded pins
+                    const pinsWithMarkers = parsedPins.map(pin => {
+                        const pinMarker = L.marker([pin.lat, pin.lng], {
+                            icon: L.divIcon({
+                                className: 'custom-pin-icon',
+                                html: `<svg viewBox="0 0 24 24" fill="currentColor" class="map-pin-svg">
+                                           <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                                       </svg>`,
+                                iconSize: [32, 32],
+                                iconAnchor: [16, 32],
+                                popupAnchor: [0, -32]
+                            }),
+                        })
+
+                        const popupContent = document.createElement('div')
+                        popupContent.style.textAlign = 'center'
+                        
+                        const coordsEl = document.createElement('div')
+                        coordsEl.innerText = `Pin #${parsedPins.indexOf(pin) + 1}\nLat: ${pin.lat.toFixed(6)}, Lng: ${pin.lng.toFixed(6)}`
+                        
+                        const copyButton = document.createElement('button')
+                        copyButton.innerText = 'Copy Coords'
+                        copyButton.className = 'bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs'
+                        
+                        copyButton.onclick = (event) => {
+                            event.stopPropagation()
+                            navigator.clipboard.writeText(`${pin.lat}, ${pin.lng}`)
+                            showMessage('Coordinates copied to clipboard!', 'success')
+                            map.closePopup()
+                        };
+
+                        const deleteButton = document.createElement('button')
+                        deleteButton.innerText = 'Delete Pin'
+                        deleteButton.className = 'bg-red-200 hover:bg-red-300 text-red-800 font-bold py-1 px-2 rounded inline-flex items-center mt-2 text-xs ml-2'
+                        
+                        deleteButton.onclick = (event) => {
+                            event.stopPropagation()
+                            setPins(prevPins => prevPins.filter(p => p.id !== pin.id))
+                            pinMarker.remove()
+                            showMessage('Pin deleted!', 'info')
+                        };
+                        
+                        popupContent.appendChild(coordsEl)
+                        popupContent.appendChild(copyButton)
+                        popupContent.appendChild(deleteButton)
+                        
+                        pinMarker.bindPopup(popupContent)
+
+                        return {
+                            ...pin,
+                            marker: pinMarker
+                        }
+                    })
+
+                    setPins(pinsWithMarkers)
+                    
+                    // Add markers to map
+                    pinsWithMarkers.forEach(pin => {
+                        if (pin.marker && map) {
+                            pin.marker.addTo(map)
+                        }
+                    })
+                    
+                    showMessage(`Loaded ${parsedPins.length} saved pins`, "success", 3000)
+                }
+            }
+        } catch (error) {
+            console.error('Error loading pins from localStorage:', error)
+            showMessage("Error loading saved pins", "error")
+        }
+    }, [map])
 
     useEffect(() => {
         // Save geofences to localStorage whenever they change
@@ -1259,6 +1501,26 @@ export default function App() {
             console.error('Error saving hidden geofences state to localStorage:', error)
         }
     }, [hiddenGeofences])
+
+    useEffect(() => {
+        // Save pins to localStorage whenever they change
+        try {
+            if (pins.length > 0) {
+                // Save pins without marker references (markers can't be serialized)
+                const pinsToSave = pins.map(pin => ({
+                    id: pin.id,
+                    lat: pin.lat,
+                    lng: pin.lng
+                }))
+                localStorage.setItem('pins', JSON.stringify(pinsToSave))
+            } else {
+                localStorage.removeItem('pins')
+            }
+        } catch (error) {
+            console.error('Error saving pins to localStorage:', error)
+            showMessage("Error saving pins", "error")
+        }
+    }, [pins])
 
     const handleExportGeofences = () => {
         if (geofences.length === 0) {
@@ -1328,6 +1590,75 @@ export default function App() {
         reader.readAsText(file)
         // Reset file input
         event.target.value = ''
+    }
+
+    const handleImportPostgresPolygon = () => {
+        const polygonString = prompt("Enter PostgreSQL POLYGON format:\nExample: POLYGON((77.0994329 28.4494778, 77.0996273 28.448841, ...))")
+        
+        if (!polygonString) return
+        
+        try {
+            // Parse PostgreSQL POLYGON format: POLYGON((lng lat, lng lat, ...))
+            const match = polygonString.match(/POLYGON\s*\(\s*\(\s*(.+)\s*\)\s*\)/i)
+            
+            if (!match) {
+                throw new Error("Invalid PostgreSQL POLYGON format")
+            }
+            
+            const coordinatesString = match[1]
+            const coordinatePairs = coordinatesString.split(',').map(pair => pair.trim())
+            
+            if (coordinatePairs.length < 3) {
+                throw new Error("Polygon must have at least 3 points")
+            }
+            
+            // Parse coordinates: PostgreSQL format is "lng lat", convert to [lat, lng]
+            const points = coordinatePairs.map(pair => {
+                const [lng, lat] = pair.split(/\s+/).map(coord => parseFloat(coord.trim()))
+                
+                if (isNaN(lat) || isNaN(lng)) {
+                    throw new Error(`Invalid coordinate: ${pair}`)
+                }
+                
+                if (lat < -90 || lat > 90) {
+                    throw new Error(`Invalid latitude: ${lat}`)
+                }
+                
+                if (lng < -180 || lng > 180) {
+                    throw new Error(`Invalid longitude: ${lng}`)
+                }
+                
+                return [lat, lng] // Convert to [lat, lng] format
+            })
+            
+            // Ensure closed loop
+            const closedPoints = ensureClosedLoop(points)
+            
+            // Create new geofence
+            const newGeofence = {
+                id: Date.now(),
+                points: closedPoints,
+                name: `Imported Polygon #${geofences.length + 1}`,
+            }
+            
+            setGeofences(prev => [...prev, newGeofence])
+            showMessage("PostgreSQL polygon imported successfully with closed loop!", "success")
+            
+            // Focus on the imported geofence
+            if (map) {
+                const bounds = validateAndCreateBounds(closedPoints)
+                if (bounds) {
+                    map.fitBounds(bounds, {
+                        padding: [20, 20],
+                        maxZoom: 16
+                    })
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error importing PostgreSQL polygon:', error)
+            showMessage(`Error importing polygon: ${error.message}`, "error")
+        }
     }
 
     // Helper function to find the closest edge and insert a point
@@ -1495,6 +1826,8 @@ export default function App() {
                 handleCancelMapEditing={handleCancelMapEditing}
                 mapEditingPoints={mapEditingPoints}
                 handleClearAll={handleClearAll}
+                handleClearAllPins={handleClearAllPins}
+                pins={pins}
             />
             <div className="flex flex-1 overflow-hidden">
                 <main className="flex-1 relative">
@@ -1506,6 +1839,14 @@ export default function App() {
                     geofences={geofences}
                     handleExportGeofences={handleExportGeofences}
                     handleImportGeofences={handleImportGeofences}
+                    handleImportPostgresPolygon={handleImportPostgresPolygon}
+                    handleAddPinManually={handleAddPinManually}
+                    pins={pins}
+                    handleFocusOnPin={handleFocusOnPin}
+                    handleDeletePin={handleDeletePin}
+                    handleCopyPinCoords={handleCopyPinCoords}
+                    sidebarTab={sidebarTab}
+                    setSidebarTab={setSidebarTab}
                     isDrawing={isDrawing}
                     isEditingOnMap={isEditingOnMap}
                     isPinning={isPinning}

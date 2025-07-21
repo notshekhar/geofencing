@@ -22,7 +22,9 @@ const Header = ({
     handleUndoMapEditingPoint,
     handleCancelMapEditing,
     mapEditingPoints,
-    handleClearAll
+    handleClearAll,
+    handleClearAllPins,
+    pins
 }) => (
     <header className="bg-white shadow-md p-2 z-20">
         <div className="container mx-auto flex flex-wrap items-center justify-between gap-4">
@@ -86,7 +88,7 @@ const Header = ({
                             }`}
                         >
                             <Icon path="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                            {isPinning ? "Pinning..." : "Drop Pin"}
+                            {isPinning ? `Pinning (${pins.length})` : "Drop Pin"}
                         </button>
                         <button
                             onClick={handleStartDrawing}
@@ -96,6 +98,17 @@ const Header = ({
                             <Icon path="M12.95 2.146a.5.5 0 01.707 0l2.853 2.854a.5.5 0 010 .707l-10 10a.5.5 0 01-.353.146H5.5a.5.5 0 01-.5-.5v-3.5a.5.5 0 01.146-.354l10-10zM14.5 4.5l-9 9v1h1l9-9-1-1z" />{" "}
                             Draw Fence
                         </button>
+
+                        {pins.length > 0 && (
+                            <button
+                                onClick={handleClearAllPins}
+                                className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 flex items-center gap-2"
+                                title={`Clear all ${pins.length} pins`}
+                            >
+                                <Icon path="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-11V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                Clear Pins ({pins.length})
+                            </button>
+                        )}
                     </>
                 ) : isDrawing ? (
                     <>
